@@ -17,3 +17,27 @@ spi = busio.SPI(board.SCLK, board.MOSI, board.MISO)
 print("SPI ok!")
 
 print("done!")
+
+
+
+
+
+def initialize_bmp388(retries=3):
+    for attempt in range(retries):
+        try:
+            time.sleep(0.5)
+
+            i2c = board.I2C()
+            bmp = adafruit_bmp3xx.BMP3XX_I2C(i2c)
+
+            bmp.pressure_oversampling = 8
+            bmp.temperature_oversampling = 2
+            return bmp
+
+        except Exception as e:
+            print(f"[{datetime.now()}] Initialization attempt "
+                  f"{attempt + 1} failed: {e}")
+
+            if attempt == retries - 1:
+                raise
+            time.sleep(1)
