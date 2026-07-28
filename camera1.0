@@ -1,5 +1,5 @@
 from datetime import datetime
-# A Raspberry Pi 3 has no built-in battery-backed real-time clock, so it cannot independently know the correct calendar time at its next boot.
+# "A Raspberry Pi 3 has no built-in battery-backed real-time clock, so it cannot independently know the correct calendar time at its next boot."
 # Will research better options
 from pathlib import Path
 import subprocess
