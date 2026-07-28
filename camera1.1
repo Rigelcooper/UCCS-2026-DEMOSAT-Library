@@ -1,9 +1,11 @@
 from datetime import datetime
 # "A Raspberry Pi 3 has no built-in battery-backed real-time clock, so it cannot independently know the correct calendar time at its next boot."
 # Will research better options
+#However it does seem to fully function as is even from a deadboot, will require further testing
 from pathlib import Path
 import subprocess
 import time
+from datetime import datetime, timezone
 
 PHOTO_FOLDER = Path("/home/demosat/Pictures")
 INTERVAL_SECONDS = 10
@@ -16,7 +18,8 @@ PHOTO_FOLDER.mkdir(parents=True, exist_ok=True)
 
 
 def take_photo():
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+    
+timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S_%fZ")
     photo_path = PHOTO_FOLDER / f"photo_{timestamp}.jpg"
 
     command = [
