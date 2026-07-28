@@ -7,5 +7,8 @@
 #/usr/bin/python3 /home/demosat/runOnBootTest.py >> /home/demosat/log.txt 2>&1 & 
 #exit 0
 
+#you can open and edit the rc.local file with the command
+#sudo nano/etc/rc.local
+
 # Every time the pi powers on it runs the runOnBootTest.py code which is simply
 print("Ran upon startup")
