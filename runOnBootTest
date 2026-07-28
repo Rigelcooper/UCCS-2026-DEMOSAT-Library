@@ -1,0 +1,5 @@
+# https://www.dexterindustries.com/howto/run-a-program-on-your-raspberry-pi-at-startup/
+# sudo python /home/demosat/runOnBootTest.py &
+#Sample program that is not an infinite loop
+
+print("Ran upon startup")
