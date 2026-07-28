@@ -1,0 +1,48 @@
+from datetime import datetime
+from pathlib import Path
+import subprocess
+import time
+
+PHOTO_FOLDER = Path("/home/demosat/Pictures")
+INTERVAL_SECONDS = 10
+
+# Smaller resolution for testing; large may cause crashes?****
+WIDTH = 2304
+HEIGHT = 1296
+
+PHOTO_FOLDER.mkdir(parents=True, exist_ok=True)
+
+
+def take_photo():
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+    photo_path = PHOTO_FOLDER / f"photo_{timestamp}.jpg"
+
+    command = [
+        "rpicam-still",
+        "--nopreview",
+        "-t", "1000",
+        "--width", str(WIDTH),
+        "--height", str(HEIGHT),
+        "-o", str(photo_path),
+    ]
+
+    try:
+        subprocess.run(command, check=True, timeout=20)
+        print(f"Saved: {photo_path}")
+    except subprocess.CalledProcessError:
+        print("Camera command failed; photo was not saved.")
+    except subprocess.TimeoutExpired:
+        print("Camera took too long; skipping this photo.")
+
+
+try:
+    while True:
+        started = time.monotonic()
+        take_photo()
+
+        # Wait only for the remaining part of the interval.
+        elapsed = time.monotonic() - started
+        time.sleep(max(0, INTERVAL_SECONDS - elapsed))
+
+except KeyboardInterrupt:
+    print("\nStopped taking photos.")
