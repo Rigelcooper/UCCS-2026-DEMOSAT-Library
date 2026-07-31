@@ -1,8 +1,8 @@
 """Combined hardware test for a BMP388, Pi camera, and GPIO geiger counter.
 
 The script samples the BMP388 every second, captures a photo every 10 seconds,
-and writes a geiger-counter summary every 60 seconds.  All results are kept in
-one CSV file so the three devices can be tested in one run.
+and writes a geiger-counter summary every 60 seconds.  The CSV contains sensor
+data only; photos are saved separately and are not recorded in the CSV.
 """
 
 from datetime import datetime, timezone
@@ -28,7 +28,7 @@ GEIGER_PIN = 17
 CALIBRATION_CPM_PER_USVH = 153.8
 
 PHOTO_FOLDER = Path("/home/demosat/Pictures")
-LOG_FILE = Path("combined_sensor_test_log.csv")
+LOG_FILE = Path("sensor_data_log.csv")
 CAMERA_WIDTH = 2304
 CAMERA_HEIGHT = 1296
 
@@ -107,7 +107,6 @@ def main():
         "pulses",
         "cpm",
         "dose_micro_sv_h",
-        "photo_path",
         "status",
     ]
 
@@ -158,15 +157,7 @@ def main():
                     next_bmp = now + BMP_INTERVAL_SECONDS
 
                 if now >= next_photo:
-                    stamp = timestamp_utc()
-                    photo_path, status = take_photo()
-                    writer.writerow({
-                        "timestamp_utc": stamp,
-                        "event": "camera",
-                        "photo_path": photo_path,
-                        "status": status,
-                    })
-                    log_file.flush()
+                    take_photo()
                     next_photo = now + PHOTO_INTERVAL_SECONDS
 
                 if now >= next_geiger:
