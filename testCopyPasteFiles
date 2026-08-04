@@ -246,3 +246,10 @@ if __name__ == "__main__":
     main()
 
             time.sleep(1)
+
+
+# On every run, add two blank rows before a new labeled CSV section.
+            if LOG_FILE.stat().st_size > 0:
+                log_file.write("\r\n\r\n")
+            writer.writeheader()
+            log_file.flush()
