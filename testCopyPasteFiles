@@ -40,4 +40,209 @@ def initialize_bmp388(retries=3):
 
             if attempt == retries - 1:
                 raise
+
+
+
+
+
+
+
+"""Combined hardware test for a BMP388, Pi camera, and GPIO geiger counter.
+
+The script samples the BMP388 every second, captures a photo every 10 seconds,
+and writes a geiger-counter summary every 60 seconds.  The CSV contains sensor
+data only; photos are saved separately and are not recorded in the CSV.
+"""
+
+from datetime import datetime, timezone
+from pathlib import Path
+import csv
+import subprocess
+import time
+from threading import Lock
+
+import board
+import adafruit_bmp3xx
+from gpiozero import DigitalInputDevice
+
+
+# ---- Test settings -------------------------------------------------------
+TEST_DURATION_SECONDS = 10*60
+
+BMP_INTERVAL_SECONDS = 1
+PHOTO_INTERVAL_SECONDS = 10
+GEIGER_INTERVAL_SECONDS = 60
+
+GEIGER_PIN = 17
+CALIBRATION_CPM_PER_USVH = 153.8
+
+PHOTO_FOLDER = Path("/home/demosat/Pictures")
+LOG_FILE = Path("home/demosat/sensor_data_log.csv")
+CAMERA_WIDTH = 2304
+CAMERA_HEIGHT = 1296
+
+
+def timestamp_utc():
+    """Return an unambiguous UTC timestamp for logs and photo names."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def initialize_bmp388(retries=3):
+    """Connect to the BMP388, retrying briefly if I2C is not ready yet."""
+    for attempt in range(1, retries + 1):
+        try:
+            time.sleep(0.5)
+            bmp = adafruit_bmp3xx.BMP3XX_I2C(board.I2C(), address=0x76)
+            bmp.pressure_oversampling = 8
+            bmp.temperature_oversampling = 2
+            print("BMP388 initialized successfully.")
+            return bmp
+        except Exception as error:
+            print(f"BMP388 initialization attempt {attempt}/{retries} failed: {error}")
+            if attempt == retries:
+                raise
+            time.sleep(1)
+
+
+def take_photo():
+    """Capture one camera image and return its path and status for the log."""
+    photo_path = PHOTO_FOLDER / f"photo_{timestamp_utc().replace(':', '-')}.jpg"
+    command = [
+        "rpicam-still",
+        "--nopreview",
+        "-t", "1000",
+        "--width", str(CAMERA_WIDTH),
+        "--height", str(CAMERA_HEIGHT),
+        "-o", str(photo_path),
+    ]
+
+    try:
+        subprocess.run(command, check=True, timeout=20)
+        print(f"Saved photo: {photo_path}")
+        return str(photo_path), "saved"
+    except subprocess.CalledProcessError as error:
+        print(f"Camera command failed: {error}")
+        return str(photo_path), "camera_command_failed"
+    except subprocess.TimeoutExpired:
+        print("Camera timed out; photo was skipped.")
+        return str(photo_path), "camera_timeout"
+    except FileNotFoundError:
+        print("rpicam-still was not found; photo was skipped.")
+        return str(photo_path), "camera_command_not_found"
+
+
+def main():
+    PHOTO_FOLDER.mkdir(parents=True, exist_ok=True)
+    bmp = initialize_bmp388()
+
+    pulse_lock = Lock()
+    pulse_count = 0
+
+    def reading_detected():
+        nonlocal pulse_count
+        with pulse_lock:
+            pulse_count += 1
+
+    tube = DigitalInputDevice(GEIGER_PIN, pull_up=True)
+    tube.when_activated = reading_detected
+    print("Geiger counter started.")
+
+    new_log = not LOG_FILE.exists()
+    fieldnames = [
+        "timestamp_utc",
+        "event",
+        "pressure_hpa",
+        "temperature_c",
+        "pulses",
+        "cpm",
+        "dose_micro_sv_h",
+        "status",
+    ]
+
+    start = time.monotonic()
+    end = start + TEST_DURATION_SECONDS
+    next_bmp = start
+    next_photo = start
+    next_geiger = start + GEIGER_INTERVAL_SECONDS
+    geiger_window_start = start
+
+    print(f"Running combined test for {TEST_DURATION_SECONDS} seconds.")
+    print(f"Logging to {LOG_FILE.resolve()}\n")
+
+    try:
+        with LOG_FILE.open("a", newline="") as log_file:
+            writer = csv.DictWriter(log_file, fieldnames=fieldnames)
+            if new_log:
+                writer.writeheader()
+                log_file.flush()
+
+            while time.monotonic() < end:
+                now = time.monotonic()
+
+                if now >= next_bmp:
+                    stamp = timestamp_utc()
+                    try:
+                        pressure = bmp.pressure
+                        temperature = bmp.temperature
+                        print(
+                            f"[{stamp}] BMP388: {pressure:.2f} hPa, "
+                            f"{temperature:.2f} C"
+                        )
+                        writer.writerow({
+                            "timestamp_utc": stamp,
+                            "event": "bmp388",
+                            "pressure_hpa": f"{pressure:.2f}",
+                            "temperature_c": f"{temperature:.2f}",
+                            "status": "ok",
+                        })
+                    except Exception as error:
+                        print(f"BMP388 read error: {type(error).__name__}: {error}")
+                        writer.writerow({
+                            "timestamp_utc": stamp,
+                            "event": "bmp388",
+                            "status": f"read_error: {type(error).__name__}",
+                        })
+                    log_file.flush()
+                    next_bmp = now + BMP_INTERVAL_SECONDS
+
+                if now >= next_photo:
+                    take_photo()
+                    next_photo = now + PHOTO_INTERVAL_SECONDS
+
+                if now >= next_geiger:
+                    elapsed = now - geiger_window_start
+                    with pulse_lock:
+                        pulses = pulse_count
+                        pulse_count = 0
+
+                    cpm = pulses * 60 / elapsed
+                    dose_rate = cpm / CALIBRATION_CPM_PER_USVH
+                    stamp = timestamp_utc()
+                    print(
+                        f"[{stamp}] Geiger: {pulses} pulses, {cpm:.1f} CPM, "
+                        f"{dose_rate:.3f} uSv/h"
+                    )
+                    writer.writerow({
+                        "timestamp_utc": stamp,
+                        "event": "geiger",
+                        "pulses": pulses,
+                        "cpm": f"{cpm:.1f}",
+                        "dose_micro_sv_h": f"{dose_rate:.3f}",
+                        "status": "ok",
+                    })
+                    log_file.flush()
+                    geiger_window_start = now
+                    next_geiger = now + GEIGER_INTERVAL_SECONDS
+
+                time.sleep(0.05)
+    except KeyboardInterrupt:
+        print("\nTest stopped by user.")
+    finally:
+        tube.close()
+        print("Hardware resources released.")
+
+
+if __name__ == "__main__":
+    main()
+
             time.sleep(1)
